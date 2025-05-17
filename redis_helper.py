@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Dict, Any, Optional
+from logging_loki import LokiHandler
 
 # Try to import redis, but provide fallback for local testing
 try:
@@ -12,9 +13,17 @@ except ImportError:
     REDIS_AVAILABLE = False
     logging.warning("Redis package not available, using in-memory mock instead")
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging with Loki
 logger = logging.getLogger("redis_helper")
+logger.setLevel(logging.INFO)
+
+# Add Loki handler
+loki_handler = LokiHandler(
+    url="http://loki:3100/loki/api/v1/push",
+    tags={"application": "redis_helper"},
+    version="1",
+)
+logger.addHandler(loki_handler)
 
 # Get Redis connection details from environment variables with defaults
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")

@@ -7,13 +7,22 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 import uvicorn
 import os
+from logging_loki import LokiHandler
 
 # Import Redis helper
 from redis_helper import RedisManager
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging with Loki
 logger = logging.getLogger("manager")
+logger.setLevel(logging.INFO)
+
+# Add Loki handler
+loki_handler = LokiHandler(
+    url="http://loki:3100/loki/api/v1/push",
+    tags={"application": "manager"},
+    version="1",
+)
+logger.addHandler(loki_handler)
 
 # Environment variables
 HEARTBEAT_TIMEOUT = int(os.getenv("HEARTBEAT_TIMEOUT", 15))  # seconds

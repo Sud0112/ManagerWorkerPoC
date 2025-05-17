@@ -11,13 +11,22 @@ import httpx
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import socket
+from logging_loki import LokiHandler
 
 # Import Redis helper if needed (not used in worker yet but prepared for future use)
 from redis_helper import RedisManager
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging with Loki
 logger = logging.getLogger("worker")
+logger.setLevel(logging.INFO)
+
+# Add Loki handler
+loki_handler = LokiHandler(
+    url="http://loki:3100/loki/api/v1/push",
+    tags={"application": "worker"},
+    version="1",
+)
+logger.addHandler(loki_handler)
 
 # Configuration from environment variables
 WORKER_NAME = os.getenv("WORKER_NAME", f"Worker-{random.randint(1, 1000)}")
