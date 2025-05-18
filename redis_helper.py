@@ -4,6 +4,10 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 from logging_loki import LokiHandler
+import asyncio
+import aiohttp
+from logging.handlers import QueueHandler
+import queue
 
 # Try to import redis, but provide fallback for local testing
 try:
@@ -13,17 +17,47 @@ except ImportError:
     REDIS_AVAILABLE = False
     logging.warning("Redis package not available, using in-memory mock instead")
 
+# Create a queue for async logging
+log_queue = queue.Queue()
+
 # Configure logging with Loki
 logger = logging.getLogger("redis_helper")
 logger.setLevel(logging.INFO)
 
-# Add Loki handler
-loki_handler = LokiHandler(
-    url="http://loki:3100/loki/api/v1/push",
-    tags={"application": "redis_helper"},
-    version="1",
-)
-logger.addHandler(loki_handler)
+# Add queue handler
+queue_handler = QueueHandler(log_queue)
+logger.addHandler(queue_handler)
+
+async def send_log_to_loki(log_record):
+    """Async function to send logs to Loki"""
+    async with aiohttp.ClientSession() as session:
+        try:
+            log_data = {
+                "streams": [{
+                    "stream": {"application": "redis_helper"},
+                    "values": [[str(int(datetime.now().timestamp() * 1e9)), log_record.getMessage()]]
+                }]
+            }
+            async with session.post(
+                "http://loki:3100/loki/api/v1/push",
+                json=log_data
+            ) as response:
+                if response.status != 204:
+                    print(f"Failed to send log to Loki: {await response.text()}")
+        except Exception as e:
+            print(f"Error sending log to Loki: {e}")
+
+async def process_log_queue():
+    """Process logs from queue and send to Loki"""
+    while True:
+        try:
+            log_record = log_queue.get_nowait()
+            await send_log_to_loki(log_record)
+        except queue.Empty:
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            print(f"Error processing log queue: {e}")
+            await asyncio.sleep(1)
 
 # Get Redis connection details from environment variables with defaults
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -63,9 +97,14 @@ class RedisManager:
     def __init__(self):
         self.redis_pool = None
         self.use_mock = not REDIS_AVAILABLE
+        self.log_task = None
         
     async def connect(self) -> bool:
         """Connect to Redis or initialize mock"""
+        # Start log processing task
+        if not self.log_task:
+            self.log_task = asyncio.create_task(process_log_queue())
+            
         if self.use_mock:
             self.redis_pool = InMemoryRedis()
             logger.info("Using in-memory mock for Redis")

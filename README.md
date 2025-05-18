@@ -7,6 +7,7 @@ This system allows for monitoring multiple FastAPI applications through WebSocke
 1. **Manager**: Central service that listens for heartbeats and monitors worker status
 2. **Workers**: FastAPI applications that register with the manager and send periodic heartbeats
 3. **Redis**: Used for storing worker registration information and status
+4. **Loki**: Centralized logging system for all components
 
 ## Features
 
@@ -15,6 +16,8 @@ This system allows for monitoring multiple FastAPI applications through WebSocke
 - Redis for persistent worker information
 - Docker setup for easy deployment
 - Health status monitoring with configurable timeout
+- Centralized logging with Loki
+- Async logging to prevent blocking operations
 
 ## Architecture
 
@@ -24,6 +27,7 @@ The system follows this architecture:
 - Workers send periodic heartbeats through the WebSocket connection
 - Manager processes heartbeats and updates worker status in Redis
 - Manager periodically checks worker status and marks workers as "not_responding" if heartbeats stop
+- All components send logs to Loki for centralized logging
 
 ### Redis Data Structure
 
@@ -49,8 +53,9 @@ docker-compose up
 
 This will start:
 - 1 Redis instance
+- 1 Loki instance for logging
 - 1 Manager service
-- 4 Worker instances
+- 2 Worker instances
 
 ### Manual Setup
 
@@ -61,12 +66,17 @@ If you want to run the components manually:
 redis-server
 ```
 
-2. Start the manager:
+2. Start Loki:
+```bash
+docker run -p 3101:3100 grafana/loki:2.9.0
+```
+
+3. Start the manager:
 ```bash
 uvicorn manager:app --host 0.0.0.0 --port 8000
 ```
 
-3. Start one or more workers (on different ports):
+4. Start one or more workers (on different ports):
 ```bash
 WORKER_NAME="Worker 1" WORKER_PORT=8001 uvicorn worker:app --host 0.0.0.0 --port 8001
 ```
@@ -110,24 +120,20 @@ After the heartbeat timeout period (default 15 seconds), the manager will mark t
 
 ## Logging and Monitoring
 
-### Current Logging
+### Loki Logging
 
-The system uses Python's built-in logging module with the following features:
+The system uses Loki for centralized logging with the following features:
 
-- Configurable log levels (default: INFO)
-- Timestamp and component identification in log entries
-- Different loggers for manager and worker components
-- Structured logging of important events:
-  - Worker registration/disconnection
-  - WebSocket connection status
-  - Heartbeat processing
-  - Worker status changes
+- Async logging to prevent blocking operations
+- Queue-based log buffering
+- Component-specific tags for easy filtering
+- Centralized log storage and querying
+- Access logs at `http://localhost:3101`
 
-When running in Docker, logs are directed to stdout/stderr and can be viewed with:
-```bash
-docker-compose logs -f manager  # View manager logs
-docker-compose logs -f worker1   # View worker1 logs
-```
+Example Loki queries:
+- `{application="manager"}` - View manager logs
+- `{application="worker"}` - View worker logs
+- `{application="redis_helper"}` - View Redis helper logs
 
 ### Monitoring
 
@@ -135,17 +141,12 @@ Current monitoring options:
 
 1. **API Endpoint**: The manager provides a `/workers` endpoint that returns real-time status of all registered workers
 2. **Container Health**: Docker health checks are configured for Redis
+3. **Loki Logs**: Centralized logging with queryable interface
 
 ### Future Extensions
 
 The system is designed to be extended with more advanced monitoring:
 
-- **Prometheus Integration**: Metrics endpoints could be added to expose:
-  - Worker registration counts
-  - Heartbeat latency
-  - Worker uptime statistics
-  - Status change events
-
+- **Grafana Integration**: Add Grafana for visualizing Loki logs
 - **Alerting**: Integration with alert managers for notification when workers go down
-
 - **Dashboard**: A simple web UI could be added to visualize worker status
